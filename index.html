@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro 動態財務分析儀表板</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: { darkBg: '#0b1121', cardBg: '#1e293b', primary: '#3b82f6' }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0b1121; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
+        .input-box { background: #0f172a; border: 1px solid #334155; color: #fff; border-radius: 0.5rem; padding: 0.75rem 1rem; width: 100%; outline: none; transition: 0.3s; }
+        .input-box:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3); }
+        .btn-gradient { background: linear-gradient(135deg, #2563eb, #3b82f6); transition: 0.2s; }
+        .btn-gradient:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4); }
+        .toast { position: fixed; bottom: -100px; left: 50%; transform: translateX(-50%); transition: 0.3s; z-index: 50; }
+        .toast.show { bottom: 20px; }
+        .custom-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #0f172a; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header -->
+        <header class="flex justify-between items-center glass p-6 rounded-2xl shadow-lg">
+            <div>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">Pro 動態財務分析系統</h1>
+                <p class="text-gray-400 mt-2 text-sm">PV / FV / PMT 智慧求解器與資產攤還視覺化 (TVM Calculator)</p>
+            </div>
+            <div class="hidden md:flex gap-3">
+                <button onclick="setPreset('mortgage')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition font-medium text-blue-300 border border-slate-600"><i class="fa-solid fa-house mr-2"></i>房貸試算</button>
+                <button onclick="setPreset('savings')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition font-medium text-emerald-300 border border-slate-600"><i class="fa-solid fa-piggy-bank mr-2"></i>定時定額</button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <!-- Input Panel -->
+            <div class="lg:col-span-4 glass p-6 rounded-2xl flex flex-col gap-5 shadow-lg">
+                <h2 class="text-xl font-semibold border-b border-slate-700 pb-3"><i class="fa-solid fa-sliders mr-2 text-blue-400"></i>參數輸入區</h2>
+                <p class="text-xs text-emerald-400 font-medium bg-emerald-900/30 p-2.5 rounded border border-emerald-800/50">💡 提示：留空欲計算的欄位，填寫其餘參數後點擊執行</p>
+                
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">年利率 (Rate %)</label>
+                    <input type="number" id="rate" class="input-box" placeholder="例如: 2.5" step="0.01">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">總期數 (年數)</label>
+                    <input type="number" id="years" class="input-box" placeholder="例如: 30" step="1">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">現值 (PV) <span class="text-xs text-gray-500">(借入為正)</span></label>
+                    <input type="number" id="pv" class="input-box" placeholder="例如: 7200000">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">每期金流 (PMT) <span class="text-xs text-gray-500">(支出為負)</span></label>
+                    <input type="number" id="pmt" class="input-box" placeholder="欲計算此項請留空">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">終值 (FV) <span class="text-xs text-gray-500">(目標為負)</span></label>
+                    <input type="number" id="fv" class="input-box" placeholder="例如: 0">
+                </div>
+
+                <div class="mt-4 flex gap-3">
+                    <button onclick="calculateTVM()" class="flex-1 btn-gradient py-3 rounded-xl font-bold text-white shadow-lg tracking-wide"><i class="fa-solid fa-play mr-2"></i>執行運算</button>
+                    <button onclick="clearFields()" class="px-5 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-xl transition text-gray-300" title="清空全部"><i class="fa-solid fa-rotate-right"></i></button>
+                </div>
+            </div>
+
+            <!-- Output & Charts -->
+            <div class="lg:col-span-8 space-y-6">
+                <!-- Summary Metrics -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="glass p-5 rounded-2xl border-t-4 border-t-blue-500 shadow-lg relative overflow-hidden">
+                        <div class="absolute top-0 right-0 p-4 opacity-10 text-4xl"><i class="fa-solid fa-calculator"></i></div>
+                        <p class="text-sm text-gray-400 relative z-10">求解目標數值</p>
+                        <h3 id="res-val" class="text-2xl font-bold text-white mt-1 relative z-10">-</h3>
+                        <p id="res-label" class="text-xs text-blue-400 mt-1 font-medium relative z-10">-</p>
+                    </div>
+                    <div class="glass p-5 rounded-2xl border-t-4 border-t-amber-500 shadow-lg relative overflow-hidden">
+                        <div class="absolute top-0 right-0 p-4 opacity-10 text-4xl"><i class="fa-solid fa-coins"></i></div>
+                        <p class="text-sm text-gray-400 relative z-10">總利息 / 總收益</p>
+                        <h3 id="res-interest" class="text-2xl font-bold text-white mt-1 relative z-10">-</h3>
+                        <p class="text-xs text-amber-400 mt-1 font-medium relative z-10">全期累計總額</p>
+                    </div>
+                    <div class="glass p-5 rounded-2xl border-t-4 border-t-purple-500 shadow-lg relative overflow-hidden">
+                        <div class="absolute top-0 right-0 p-4 opacity-10 text-4xl"><i class="fa-solid fa-flag-checkered"></i></div>
+                        <p class="text-sm text-gray-400 relative z-10">期末最終餘額</p>
+                        <h3 id="res-balance" class="text-2xl font-bold text-white mt-1 relative z-10">-</h3>
+                        <p class="text-xs text-purple-400 mt-1 font-medium relative z-10">第 N 期結算</p>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="glass p-6 rounded-2xl shadow-lg">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-semibold"><i class="fa-solid fa-chart-area mr-2 text-emerald-400"></i>資產與負債演進曲線</h2>
+                    </div>
+                    <div class="h-[320px] w-full relative">
+                        <canvas id="mainChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="glass p-6 rounded-2xl shadow-lg flex flex-col">
+            <h2 class="text-lg font-semibold mb-4"><i class="fa-solid fa-table-list mr-2 text-purple-400"></i>逐期攤還與累積明細 (Amortization Schedule)</h2>
+            <div class="overflow-x-auto max-h-[450px] custom-scroll rounded-lg border border-slate-700">
+                <table class="w-full text-sm text-right">
+                    <thead class="text-xs uppercase bg-slate-800 text-gray-300 sticky top-0 z-20">
+                        <tr>
+                            <th class="px-5 py-4 text-center">期數(月)</th>
+                            <th class="px-5 py-4">期初餘額</th>
+                            <th class="px-5 py-4">當期金流</th>
+                            <th class="px-5 py-4">當期利息</th>
+                            <th class="px-5 py-4">本金變動</th>
+                            <th class="px-5 py-4 font-bold text-white">期末餘額</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body" class="divide-y divide-slate-700/50 text-gray-300 bg-slate-900/30">
+                        <tr><td colspan="6" class="text-center py-12 text-gray-500 font-medium">請先執行計算以產生動態表格資料</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast glass px-6 py-3 rounded-full flex items-center gap-3 shadow-[0_10px_40px_rgba(0,0,0,0.5)] border">
+        <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400 text-xl"></i>
+        <span id="toast-msg" class="font-medium text-white tracking-wide"></span>
+    </div>
+
+    <script>
+        let myChart = null;
+
+        function formatCurrency(num) {
+            return new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
+        }
+
+        function showToast(msg, isError = false) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-msg').textContent = msg;
+            const icon = document.getElementById('toast-icon');
+            if(isError) {
+                icon.className = "fa-solid fa-circle-exclamation text-red-400 text-xl";
+                toast.style.borderColor = "rgba(248, 113, 113, 0.4)";
+                toast.style.background = "rgba(127, 29, 29, 0.8)";
+            } else {
+                icon.className = "fa-solid fa-circle-check text-emerald-400 text-xl";
+                toast.style.borderColor = "rgba(52, 211, 153, 0.4)";
+                toast.style.background = "rgba(6, 78, 59, 0.8)";
+            }
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3500);
+        }
+
+        function setPreset(type) {
+            clearFields();
+            if (type === 'mortgage') {
+                document.getElementById('rate').value = 2.5;
+                document.getElementById('years').value = 30;
+                document.getElementById('pv').value = 7200000;
+                document.getElementById('fv').value = 0;
+            } else if (type === 'savings') {
+                document.getElementById('rate').value = 4.0;
+                document.getElementById('years').value = 5;
+                document.getElementById('pv').value = 0;
+                document.getElementById('fv').value = -2000000;
+            }
+            showToast("已載入預設情境，請點擊執行運算！");
+        }
+
+        function clearFields() {
+            ['rate', 'years', 'pv', 'pmt', 'fv'].forEach(id => document.getElementById(id).value = '');
+            if(myChart) myChart.destroy();
+            document.getElementById('table-body').innerHTML = '<tr><td colspan="6" class="text-center py-12 text-gray-500 font-medium">請先執行計算以產生動態表格資料</td></tr>';
+            document.getElementById('res-val').textContent = '-';
+            document.getElementById('res-label').textContent = '-';
+            document.getElementById('res-interest').textContent = '-';
+            document.getElementById('res-balance').textContent = '-';
+        }
+
+        function calculateTVM() {
+            let rVal = document.getElementById('rate').value;
+            let nVal = document.getElementById('years').value;
+            if(!rVal || !nVal) { showToast("錯誤：請至少填寫年利率與總期數！", true); return; }
+            
+            let rate = parseFloat(rVal) / 100 / 12;
+            let nper = parseFloat(nVal) * 12;
+            
+            let pv = document.getElementById('pv').value === "" ? null : parseFloat(document.getElementById('pv').value);
+            let pmt = document.getElementById('pmt').value === "" ? null : parseFloat(document.getElementById('pmt').value);
+            let fv = document.getElementById('fv').value === "" ? null : parseFloat(document.getElementById('fv').value);
+
+            let emptyCount = (pv === null ? 1 : 0) + (pmt === null ? 1 : 0) + (fv === null ? 1 : 0);
+            if (emptyCount !== 1) {
+                showToast("錯誤：請精確留空「一個」欲計算的欄位 (PV, PMT 或 FV)", true);
+                return;
+            }
+
+            let resultType = ""; let resultValue = 0;
+
+            if (pmt === null) {
+                if (rate === 0) pmt = -(pv + fv) / nper;
+                else pmt = -(rate * (pv * Math.pow(1+rate, nper) + fv)) / (Math.pow(1+rate, nper) - 1);
+                document.getElementById('pmt').value = pmt.toFixed(2);
+                resultType = "每期金流 (PMT)"; resultValue = pmt;
+            } else if (pv === null) {
+                if (rate === 0) pv = -(fv + pmt * nper);
+                else pv = -(fv + pmt * (Math.pow(1+rate, nper) - 1) / rate) / Math.pow(1+rate, nper);
+                document.getElementById('pv').value = pv.toFixed(2);
+                resultType = "現值 (PV)"; resultValue = pv;
+            } else if (fv === null) {
+                if (rate === 0) fv = -(pv + pmt * nper);
+                else fv = -(pv * Math.pow(1+rate, nper) + pmt * (Math.pow(1+rate, nper) - 1) / rate);
+                document.getElementById('fv').value = fv.toFixed(2);
+                resultType = "終值 (FV)"; resultValue = fv;
+            }
+
+            pv = parseFloat(document.getElementById('pv').value);
+            pmt = parseFloat(document.getElementById('pmt').value);
+            fv = parseFloat(document.getElementById('fv').value);
+
+            document.getElementById('res-val').textContent = formatCurrency(resultValue);
+            document.getElementById('res-val').className = resultValue < 0 ? "text-2xl font-bold text-red-400 mt-1 relative z-10" : "text-2xl font-bold text-emerald-400 mt-1 relative z-10";
+            document.getElementById('res-label').textContent = `計算目標：${resultType}`;
+
+            generateSchedule(pv, pmt, fv, rate, nper);
+            showToast(`✅ 計算成功！${resultType} 為 ${formatCurrency(resultValue)}`);
+        }
+
+        function generateSchedule(pv, pmt, fv, rate, nper) {
+            let tbody = document.getElementById('table-body');
+            tbody.innerHTML = '';
+            
+            let begBalance = pv;
+            let totalInterest = 0;
+            let labels = [];
+            let balances = [];
+            
+            labels.push(0);
+            balances.push(pv);
+
+            let htmlStr = "";
+
+            for (let i = 1; i <= nper; i++) {
+                let interest = begBalance * rate;
+                let principal = pmt + interest;
+                let endBalance;
+                
+                if (pv > 0) {
+                    principal = -(pmt + interest);
+                    endBalance = begBalance - principal;
+                } else {
+                    principal = pmt;
+                    endBalance = begBalance + principal + interest;
+                }
+
+                if(Math.abs(endBalance) < 0.01) endBalance = 0; 
+                totalInterest += Math.abs(interest);
+                
+                if(i <= 360 || i === nper) { 
+                    htmlStr += `<tr class="hover:bg-slate-700/40 transition border-b border-slate-700/50">
+                        <td class="px-5 py-3 text-center text-gray-400">${i}</td>
+                        <td class="px-5 py-3">${formatCurrency(begBalance)}</td>
+                        <td class="px-5 py-3 ${pmt < 0 ? 'text-red-400 font-medium' : 'text-emerald-400 font-medium'}">${formatCurrency(pmt)}</td>
+                        <td class="px-5 py-3 text-amber-400/90">${formatCurrency(interest)}</td>
+                        <td class="px-5 py-3">${formatCurrency(principal)}</td>
+                        <td class="px-5 py-3 font-semibold text-white">${formatCurrency(endBalance)}</td>
+                    </tr>`;
+                }
+
+                labels.push(i);
+                balances.push(endBalance);
+                begBalance = endBalance;
+            }
+            
+            tbody.innerHTML = htmlStr;
+            
+            document.getElementById('res-interest').textContent = formatCurrency(totalInterest);
+            document.getElementById('res-balance').textContent = formatCurrency(balances[balances.length-1]);
+            
+            drawChart(labels, balances, pv > 0);
+        }
+
+        function drawChart(labels, data, isLoan) {
+            const ctx = document.getElementById('mainChart').getContext('2d');
+            if (myChart) myChart.destroy();
+            
+            let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            if(isLoan) {
+                gradient.addColorStop(0, 'rgba(248, 113, 113, 0.4)'); 
+                gradient.addColorStop(1, 'rgba(248, 113, 113, 0.0)');
+            } else {
+                gradient.addColorStop(0, 'rgba(52, 211, 153, 0.4)'); 
+                gradient.addColorStop(1, 'rgba(52, 211, 153, 0.0)');
+            }
+
+            Chart.defaults.color = '#94a3b8';
+            Chart.defaults.font.family = "'Inter', sans-serif";
+
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: isLoan ? '負債餘額 (Debt Balance)' : '資產總值 (Asset Value)',
+                        data: data,
+                        borderColor: isLoan ? '#f87171' : '#34d399',
+                        backgroundColor: gradient,
+                        borderWidth: 3,
+                        fill: true,
+                        pointRadius: 0,
+                        pointHoverRadius: 6,
+                        pointHoverBackgroundColor: '#fff',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: { 
+                        legend: { display: true, position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleColor: '#fff',
+                            bodyColor: '#e2e8f0',
+                            borderColor: 'rgba(255,255,255,0.1)',
+                            borderWidth: 1,
+                            padding: 12,
+                            callbacks: {
+                                label: function(context) { return ' 金額: ' + formatCurrency(context.raw); }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)', drawBorder: false } },
+                        y: { 
+                            grid: { color: 'rgba(255,255,255,0.05)', drawBorder: false }, 
+                            ticks: { callback: (value) => value.toLocaleString(), maxTicksLimit: 8 } 
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Init default preset
+        setPreset('mortgage');
+    </script>
+</body>
+</html>
